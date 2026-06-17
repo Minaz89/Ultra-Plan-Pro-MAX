@@ -1,0 +1,12 @@
+# Compiled / test output
+*.out
+
+# Scratch / tmp artifacts
+scratch/
+tmp/
+
+# Local worker receipts
+.worker-receipts/
+
+# Logs
+*.log
