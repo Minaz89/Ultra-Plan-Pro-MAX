@@ -8,8 +8,9 @@ point — it reads all answers fresh, after they have all returned.
 
 ```
             ┌─→ Opus 4.8 @xhigh     (run_opus.sh)    ─┐
-verbatim ──→├─→ GPT-5.5  @high      (run_gpt.sh)     ─┼─→ judge (Opus 4.8 @ultracode)
-prompt     └─→ MiniMax M3 @deep    (run_minimax.sh)  ┘   reads all three, decides
+verbatim ──→├─→ GPT-5.5  @high      (run_gpt.sh)     ─┤
+prompt     ├─→ MiniMax M3 @deep    (run_minimax.sh)  ─┼─→ judge (Opus 4.8 @ultracode)
+           └─→ GLM-5.2 @deep       (run_glm.sh)      ─┘   reads all four, decides
 ```
 
 ## Why blind + parallel (not round-robin, not shared context)
@@ -22,7 +23,7 @@ this affordable — wall-clock is the slowest panelist, not the sum.
 The reference mechanism (fusion-fable, citing the DRACO deep-research finding)
 is that **synthesizing independent answers — even two runs of the same model —
 beats a single run**. The whole panel is a bet on that finding, adapted to a
-heterogeneous 3-model panel instead of N runs of one model.
+heterogeneous 4-model panel instead of N runs of one model.
 
 ## The fuse panel
 
@@ -31,6 +32,7 @@ heterogeneous 3-model panel instead of N runs of one model.
 | Opus 4.8 | `@xhigh`      | `run_opus.sh`     | local `claude -p --model claude-opus-4-8`          |
 | GPT-5.5  | `@high`       | `run_gpt.sh`      | pluggable: `codex exec` → daemon route → drop       |
 | MiniMax M3 | `@deep`     | `run_minimax.sh`  | `mm --deep -p` (per-invocation env, FR-005)        |
+| GLM-5.2  | `@deep`       | `run_glm.sh`      | local `claude -p` repointed at z.ai (32k, FR-005)  |
 
 Each panelist is a **literal separate process** via its runner script — never
 an in-process `Agent` subagent. That is what guarantees Opus is Opus
@@ -73,4 +75,4 @@ times; the roles re-introduce the anchoring they were meant to prevent
   selects one answer outright or combines them (see `judge_rubric.md`).
 - Not a replacement for thinking. A panel answers the question it was
   given; the *quality* of the question is the caller's job. fusing a
-  vague prompt just fuses three vague answers.
+  vague prompt just fuses four vague answers.

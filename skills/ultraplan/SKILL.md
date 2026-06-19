@@ -1,6 +1,6 @@
 ---
 name: ultraplan
-description: Use for `/plan --ultra` or "ultraplan this" — wraps the normal `plan` skill with a panel→judge front-end: specify+clarify ONCE, freeze the spec, fan it to 3 blind planners (Opus @xhigh / GPT-5.5 @high / MiniMax M3 @deep — top-of-ladder-below-max per model), Opus @ultracode judge select-and-grafts into ONE merged plan brief, human gate, then the normal `plan` pipeline formalizes. Opt-in only; ~4x cost; reserve for contested / greenfield / high-stakes plans. DO NOT USE for routine single-file changes, small refactors, or anything normal `/plan` handles fine.
+description: Use for `/plan --ultra` ("ultraplan", "ultra plan pro max") — wraps the normal `plan` skill with a panel→judge front-end: specify+clarify ONCE, freeze the spec, fan it to 4 blind planners (Opus @xhigh / GPT-5.5 @high / MiniMax M3 @deep / GLM-5.2 @deep — top-of-ladder-below-max per model), Opus @ultracode judge select-and-grafts into ONE merged plan brief, human gate, then the normal `plan` pipeline formalizes. Execution (pro-max) routes to GLM-5.2-deep via `glm-exec` (replaces MiniMax-M3), opus audits. Opt-in only; ~5x cost; reserve for contested / greenfield / high-stakes plans. DO NOT USE for routine single-file changes, small refactors, or anything normal `/plan` handles fine.
 ---
 
 # ultraplan — panel→judge over the PLAN stage
@@ -8,8 +8,12 @@ description: Use for `/plan --ultra` or "ultraplan this" — wraps the normal `p
 You are the **orchestrator**. The opus session that ran this skill is also
 the **judge** (separate from every spawned panelist). ultraplan is a thin
 mode on top of the normal `plan` skill — it does NOT modify `plan`; it
-orchestrates around it. The plan+audit+m3-worker downstream stays
-byte-for-byte unchanged (FR-024).
+orchestrates around it. The plan formalization + audit downstream stay
+byte-for-byte unchanged (FR-024). **EXECUTOR OVERRIDE (pro-max):** the one
+deviation from FR-024 — under `--ultra`, the EXECUTION phase routes to
+GLM-5.2-deep via `glm-exec` (it REPLACES MiniMax-M3 / `mm-exec` here), while
+opus still plans + audits. Normal `/plan` (no flag) keeps the M3 default. See
+the **EXECUTOR (pro-max)** section near the end.
 
 ## Hard rules (do not violate)
 
@@ -36,12 +40,13 @@ byte-for-byte unchanged (FR-024).
 - **FR-022** — planner effort = the top of each model's ladder that is still
   **below `max`** (Principle V: never `max` on planners): opus = `xhigh`,
   gpt-5.5 = `high` (codex has no xhigh), minimax = `deep` (its --deep/32k mode;
-  "high" silently drops --deep → shallow). The Principle V `max` deviation
+  "high" silently drops --deep → shallow), glm-5.2 = `deep` (z.ai, 32k thinking
+  via `run_glm.sh`; a non-"deep" effort drops it to a 10k budget). The Principle V `max` deviation
   (US1, local `claude -p` path) MUST NOT extend to planners — `xhigh` is one
   rung under `max`, so this holds. Judge effort = `ultracode` (user-overridable).
 - **FR-023** — non-authoritative provenance trail. Persist
   `specs/NNN-slug/ultraplan/panel_opus.md` / `panel_gpt.md` /
-  `panel_minimax.md` (raw briefs), `merged_brief.md`, `judge_attribution.json`
+  `panel_minimax.md` / `panel_glm.md` (raw briefs), `merged_brief.md`, `judge_attribution.json`
   (spine + grafts + rejections), `recon.md` (FR-025 codebase-recon findings +
   spec corrections, or a one-line "skipped (greenfield)"), and
   `spec.frozen.md` + `spec.frozen.sha256`.
@@ -52,8 +57,9 @@ byte-for-byte unchanged (FR-024).
   canonical Phase-0 artifact; the merged brief feeds INTO it (Step 5),
   but `merged_brief.md` itself is provenance, not canon.
 - **FR-024** — opt-in. `/plan` (no flag) MUST run the normal single-model
-  pipeline. `--ultra` is the only trigger. m3-worker + plan-audit
-  downstream are unchanged.
+  pipeline. `--ultra` is the only trigger. plan-audit downstream is
+  unchanged; the ONE pro-max deviation is the executor (GLM via `glm-exec`
+  replaces M3 under `--ultra` — STEP 7). Normal `/plan` keeps the M3 default.
 - **FR-025** — recon BEFORE freeze. When the spec references an existing
   codebase (extends/modifies/builds-on a shipped CLI/service/test-suite),
   the orchestrator MUST read the real named files and reconcile the spec
@@ -68,7 +74,7 @@ byte-for-byte unchanged (FR-024).
 When the environment variable `TG_ULTRAPLAN_AUTO_GATE=1` is set (the Telegram
 daemon sets it for `!ultraplan` / `/plan --ultra` on the async chat surface),
 the two **human gates** run AUTOMATICALLY and never block for input. Everything
-else is unchanged — freeze-once (FR-017), 3 blind planners at per-model effort (opus xhigh / gpt high / minimax deep, FR-022), judge
+else is unchanged — freeze-once (FR-017), 4 blind planners at per-model effort (opus xhigh / gpt high / minimax deep / glm deep, FR-022), judge
 select-and-graft (FR-019), the **≥2-planner hard floor** (STEP 2), and the full
 provenance trail (FR-023) all still apply:
 
@@ -105,7 +111,7 @@ fi
 
 ## STEP 0 — Gate (opt-in, expensive)
 
-ultraplan costs ~4× a normal plan (3 planners + judge + formalize). Refuse
+ultraplan costs ~5× a normal plan (4 planners + judge + formalize). Refuse
 quietly: if the feature is a routine change, single-file fix, refactor
 with clear scope, or anything the normal `/plan` handles cleanly, tell the
 user:
@@ -189,7 +195,7 @@ over the same WHAT. If a planner says "the spec is unclear about X", the
 fix is to go back to STEP 1 with the user — NOT to loosen the freeze
 mid-fan-out.
 
-## STEP 2 — Fan the FROZEN SPEC to 3 blind planners
+## STEP 2 — Fan the FROZEN SPEC to 4 blind planners
 
 Reuse the fuse engine. Each panelist gets the **frozen spec** as the
 verbatim prompt, with a thin instruction header that constrains output
@@ -198,7 +204,7 @@ shape (no speckit artifacts, free-form plan brief, effort = high):
 ```bash
 prompt_file="${scratch}/prompt.txt"
 {
-    echo "You are one of three blind planners. Produce a free-form PLAN"
+    echo "You are one of four blind planners. Produce a free-form PLAN"
     echo "BRIEF (architecture, approach, phased breakdown, risks, files"
     echo "touched, test strategy). DO NOT produce spec.md / plan.md /"
     echo "tasks.md / task lists / GATE tasks — those are generated later."
@@ -225,6 +231,7 @@ echo "ultraplan panel slug: ${SLUG:-unknown}"
 opus_out="${scratch}/brief_opus.txt"
 gpt_out="${scratch}/brief_gpt.txt"
 minimax_out="${scratch}/brief_minimax.txt"
+glm_out="${scratch}/brief_glm.txt"
 
 # Per-planner effort (FR-022) — each model gets the top of ITS OWN ladder
 # that is still BELOW max (Principle V: never max on planners):
@@ -232,18 +239,20 @@ minimax_out="${scratch}/brief_minimax.txt"
 #   gpt-5.5 = high   (codex caps at high — no xhigh exists; xhigh would fall back to high anyway)
 #   minimax = deep   (M3's thinking mode = --deep/32k; passing "high" here SILENTLY DROPS --deep
 #                     → shallow. "deep" is the correct top-effort token for run_minimax.sh.)
+#   glm-5.2 = deep   (z.ai, 32k thinking via run_glm.sh; a non-"deep" effort drops to a 10k budget)
 bash "${FUSE_SCRIPTS_DIR}/run_opus.sh"    "${prompt_file}" "${opus_out}"    xhigh
 bash "${FUSE_SCRIPTS_DIR}/run_gpt.sh"     "${prompt_file}" "${gpt_out}"     high
 bash "${FUSE_SCRIPTS_DIR}/run_minimax.sh" "${prompt_file}" "${minimax_out}" deep
+bash "${FUSE_SCRIPTS_DIR}/run_glm.sh"     "${prompt_file}" "${glm_out}"     deep
 ```
 
 Reuse the fuse runner contract verbatim: `run_*.sh <prompt> <out> [effort]`,
 exit codes (0 ok / 127 missing → drop / 64-65 usage / 1 errored →
 absent). Apply FR-011: a dropped or errored panelist is **never** a
-concurring vote. With 3 panelists fanned to 3, you can absorb at most
-1 drop; if 2+ are absent, **STOP and warn**:
+concurring vote. With 4 panelists fanned to 4, you can absorb at most
+2 drops; if 3+ are absent (fewer than 2 returned), **STOP and warn**:
 
-> "Only N/3 planners returned — ultraplan needs ≥2 to add value over a
+> "Only N/4 planners returned — ultraplan needs ≥2 to add value over a
 > single plan. Continue with reduced panel, or abort and re-run normal
 > `/plan`?"
 
@@ -253,6 +262,7 @@ Persist each returned brief to the provenance trail:
 cp "${opus_out}"    "${spec_dir}/ultraplan/panel_opus.md"
 cp "${gpt_out}"     "${spec_dir}/ultraplan/panel_gpt.md"
 cp "${minimax_out}" "${spec_dir}/ultraplan/panel_minimax.md"
+cp "${glm_out}"     "${spec_dir}/ultraplan/panel_glm.md"
 ```
 
 The trail is the audit-trail, not the deliverable. It is
@@ -283,7 +293,7 @@ brief **fresh** in this turn. Apply the `plan` task-class rules from
    GATE tasks** in this output. Structure comes later from `plan`.
 4. **Attribution (FR-010)**: every architectural decision / risk-callout
    / test-strategy choice in the merged brief carries an inline tag
-   `[opus]` / `[gpt]` / `[minimax]` / `[opus+gpt]` etc. A claim with no
+   `[opus]` / `[gpt]` / `[minimax]` / `[glm]` / `[opus+gpt]` etc. A claim with no
    source is a bug.
 5. **Reality re-check (FR-025 defense-in-depth).** If `ultraplan/recon.md`
    exists (the spec extended existing code), read it and verify the merged
@@ -307,7 +317,7 @@ Persist attribution metadata alongside:
 ```bash
 cat > "${spec_dir}/ultraplan/judge_attribution.json" <<EOF
 {
-  "spine": "<opus|gpt|minimax>",
+  "spine": "<opus|gpt|minimax|glm>",
   "grafts": [
     {"from": "<panelist>", "item": "<one-line>", "section": "<where>"}
   ],
@@ -416,8 +426,8 @@ grep -oE '\[(opus|gpt|minimax)([+]gpt|[+]minimax|[+]opus)*\]' "${brief}" \
 **Two classes of drop are HIGH-PRIORITY** (flag with `!! ` in the report):
 
 - **UNIQUE INSIGHTS** — a decision attributed to a single panelist
-  (e.g. `[minimax]`, `[opus]`, `[gpt]` alone) that did not survive.
-  The whole point of fanning to 3 planners was to surface ideas one
+  (e.g. `[minimax]`, `[opus]`, `[gpt]`, `[glm]` alone) that did not survive.
+  The whole point of fanning to 4 planners was to surface ideas one
   planner would miss. Losing one of those to the formalizer is
   unforgivable.
 - **BLIND-SPOT items** — risks, edge cases, or test-strategy points
@@ -482,6 +492,7 @@ specs/NNN-slug/ultraplan/
 ├── panel_opus.md           # raw Opus brief (Step 2)
 ├── panel_gpt.md            # raw GPT-5.5 brief (Step 2)
 ├── panel_minimax.md        # raw MiniMax M3 brief (Step 2)
+├── panel_glm.md            # raw GLM-5.2 brief (Step 2)
 ├── merged_brief.md         # judge output (Step 3) — promoted to research.md
 ├── judge_attribution.json  # spine + grafts + rejections + absent (Step 3)
 ├── attribution_tags.txt    # extracted [opus]/[gpt]/[minimax] tags (Step 6.1)
@@ -516,7 +527,7 @@ human or auditor — sees the exclusion notice before reading the briefs:
 # Verify all expected files exist; abort if any are missing — that is a
 # provenance gap and a FR-023 violation.
 for f in spec.frozen.md spec.frozen.sha256 \
-         panel_opus.md panel_gpt.md panel_minimax.md \
+         panel_opus.md panel_gpt.md panel_minimax.md panel_glm.md \
          merged_brief.md judge_attribution.json \
          attribution_tags.txt dropped_decisions.md; do
     [[ -s "${spec_dir}/ultraplan/${f}" ]] || {
@@ -545,13 +556,28 @@ files have the same bytes at the moment of the copy, but
 Step 4, re-run the `cp` after re-recording the SHA256 so
 `research.md` is the current copy.
 
-## STEP 7 — Downstream UNCHANGED (FR-024)
+## STEP 7 — EXECUTOR (pro-max) + audit
 
-After STEP 6 sign-off, execution and audit are byte-for-byte the same
-as for any other plan:
+After STEP 6 sign-off, **audit** is byte-for-byte the same as any other
+plan; **execution** is the one pro-max deviation from FR-024:
 
-- `m3-worker` (or `speckit-implement`) executes the tasks.
-- `plan-audit` audits the **merged artifacts** under `specs/NNN/` —
+- **EXECUTION → GLM-5.2-deep via `glm-exec` (replaces MiniMax-M3 / `mm-exec`).**
+  Run each implementation task through `glm-exec` exactly as the `m3-worker`
+  loop would use `mm-exec` — same role rule (Claude plans + audits, the worker
+  executes), same per-task receipt, same fail-loud discipline:
+  ```bash
+  glm-exec --receipt-dir specs/NNN/.worker-receipts --task-id T0xx \
+      "Execute T0xx: <task text + the files/context it needs>"
+  ```
+  `glm-exec` carries a DESIGN-TASTE MANDATE in its worker preamble: any task
+  touching frontend/UI code MUST apply `design-taste-frontend`,
+  `emil-design-eng`, and `impeccable` (non-UI tasks are exempt). The GLM key
+  is read per-invocation from `~/.config/glm.env`; never echo it, never set a
+  global `ANTHROPIC_BASE_URL`. On an audit FAIL, do NOT auto-re-dispatch — get
+  operator approval first (runaway-spend guard). The Telegram `!work` surface
+  still uses M3; the GLM executor is the `--ultra` pro-max path. (Normal
+  `/plan` execution keeps the M3 default per CLAUDE.md.)
+- **AUDIT — opus, unchanged.** `plan-audit` audits the **merged artifacts** under `specs/NNN/` —
   spec.md, research.md (= merged brief), plan.md, tasks.md, analyze.md.
 - The provenance trail at `specs/NNN/ultraplan/` is **excluded** from
   `plan-audit` (FR-023). `plan-audit`'s path filter is
@@ -575,12 +601,12 @@ as for any other plan:
   a runner misbehaves; the contract is `run_*.sh <prompt> <out>
   [effort]`. The ultraplan contract with each runner overrides only the
   effort default, per model: opus `xhigh` (vs runner default `max`),
-  gpt `high` (vs `high`), minimax `deep` (vs `deep`) — i.e. top-of-ladder
-  below max for each.
+  gpt `high` (vs `high`), minimax `deep` (vs `deep`), glm `deep` (32k) — i.e.
+  top-of-ladder below max for each.
 
 ## Red flags — stop and restart this skill
 
-- "I'll just run 3 planners inline in chat" → use the fuse runners; FR-002
+- "I'll just run 4 planners inline in chat" → use the fuse runners; FR-002
   + FR-022 (effort override) require the runner contract.
 - "Spec needs one more pass" → freeze it (STEP 1) before fanning. If it
   really needs more, abort, re-run normal `plan`, then re-invoke `--ultra`.

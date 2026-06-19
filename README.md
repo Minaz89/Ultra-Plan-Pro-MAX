@@ -5,14 +5,14 @@
 
 The two skills:
 
-- **`ultraplan`** (`/plan --ultra`) — specify-once → freeze spec → 3 blind planners → Opus judge select-and-graft → human gate → formalize → fidelity check. Includes the FR-025 recon-before-freeze gate.
+- **`ultraplan`** (`/plan --ultra`) — specify-once → freeze spec → 4 blind planners → Opus judge select-and-graft → human gate → formalize → fidelity check. Includes the FR-025 recon-before-freeze gate.
 - **`fuse`** (`/fuse`) — the underlying panel→judge engine documented below.
 
 ---
 
 # fuse
 
-> **One verbatim prompt → parallel, blind 3-model panel → Opus judge selects or merges.**
+> **One verbatim prompt → parallel, blind 4-model panel → Opus judge selects or merges.**
 >
 > Modeled on [github.com/duolahypercho/fusion-fable](https://github.com/duolahypercho/fusion-fable). Reference mechanism: synthesizing *independent* answers (even two runs of the same model) beats a single run (DRACO deep-research finding). `fuse` adapts that to a heterogeneous panel.
 
@@ -40,7 +40,10 @@ No assigned personas. No lenses. No "you are a security expert" wrapper. Diversi
 | Panelist  | Opus 4.8    | `xhigh`      | `run_opus.sh`      | `claude -p --model claude-opus-4-8`               |
 | Panelist  | GPT-5.5     | `high`       | `run_gpt.sh`       | `codex exec -s read-only`                         |
 | Panelist  | MiniMax M3  | `deep`       | `run_minimax.sh`   | `mm --deep -p` (→ `claude -p --model MiniMax-M3`) |
+| Panelist  | GLM-5.2     | `deep` (32k) | `run_glm.sh`       | `claude -p` repointed at z.ai (Anthropic-compat)  |
 | **Judge** | **Opus 4.8**| **`ultracode`** | orchestrator-self | the same Opus session, runnning `fuse`            |
+
+GLM-5.2 (Zhipu) runs through the **same local `claude` binary** as Opus, with the env scoped per-invocation to z.ai's Anthropic-compatible endpoint (`ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic`, auth from `~/.config/glm.env`, 32k thinking). The key is sourced into the invocation only and never echoed — same secret-safety contract as every other runner (§10). The same engine powers `ultraplan`'s 4-planner panel under `/plan --ultra`, where GLM-5.2-deep is also the **executor** (Opus still judges + audits).
 
 The **judge is the orchestrator**. You are the Opus session that loaded the skill; the judge step is *that* session, not a separate model. The skill's SKILL.md documents the seam: if you are not already on Opus, the judge step can shell out via `run_opus.sh … ultracode` and read the verdict back. The verification question is *"did the verdict come from an Opus 4.8 @ultracode pass?"*.
 
@@ -90,7 +93,7 @@ All three commands:
 
 ## 5. How it works
 
-**STEP 0 — Detect the panel.** Run `bash "${SKILL_DIR}/scripts/detect_panel.sh"`. Parse the `SLUG=...` line (machine-readable). Slug precedence: `opus-gpt-minimax` > `opus-minimax` > `opus-gpt` > `opus-only`. Pin overrides (the `/fuse-opus-gpt-minimax` command, or a `--panel` flag) skip detection.
+**STEP 0 — Detect the panel.** Run `bash "${SKILL_DIR}/scripts/detect_panel.sh"`. Parse the `SLUG=...` line (machine-readable). The slug is **compositional** — `opus` is the spine and each available panelist appends its tag (`-gpt`, `-minimax`, `-glm`), so the richest panel is `opus-gpt-minimax-glm` and any subset is valid (`opus-gpt-minimax`, `opus-minimax`, `opus-glm`, `opus-only`, …). Pin overrides (the `/fuse-opus-gpt-minimax` command, or a `--panel` flag) skip detection.
 
 **STEP 1 — Fan out parallel + blind.** `mktemp -d` a scratch dir + `trap ... EXIT` to clean it (caller-side — subshell traps fire too early). Write the verbatim prompt to `${scratch}/prompt.txt`. Launch every participating runner in **one assistant turn** with parallel `Bash` calls:
 
@@ -98,6 +101,7 @@ All three commands:
 bash "${SKILL_DIR}/scripts/run_opus.sh"     "${scratch}/prompt.txt" "${scratch}/answer_opus.txt"     xhigh
 bash "${SKILL_DIR}/scripts/run_gpt.sh"      "${scratch}/prompt.txt" "${scratch}/answer_gpt.txt"      high
 bash "${SKILL_DIR}/scripts/run_minimax.sh"  "${scratch}/prompt.txt" "${scratch}/answer_minimax.txt"  deep
+bash "${SKILL_DIR}/scripts/run_glm.sh"      "${scratch}/prompt.txt" "${scratch}/answer_glm.txt"      deep
 ```
 
 Skip any panelist whose backend is missing (the detector told you which). Do not call the excluded runners — that would pollute the run with a phantom panelist.
@@ -107,7 +111,7 @@ Skip any panelist whose backend is missing (the detector told you which). Do not
 - **Track A** — merge to one complete runnable artifact. Run it. `verified: ran-ok` or `verified: unverified` (with the reason). Never claim a run that didn't happen.
 - **Track B** — five attributed sections: consensus, contradictions, partial coverage, unique insights, blind spots — then a grounded final answer (not a fifth summary).
 
-Every claim gets an inline `[opus]` / `[gpt]` / `[minimax]` / `[opus+gpt]` tag. A claim with no source is a bug (FR-010).
+Every claim gets an inline `[opus]` / `[gpt]` / `[minimax]` / `[glm]` / `[opus+gpt]` tag. A claim with no source is a bug (FR-010).
 
 **STEP 3 + 4 — Deliverable, audit, panel line, cost note.** Final answer first, always (FR-015 — never bury the answer under the analysis). Then the attributed audit. Then the **panel line**:
 
@@ -122,8 +126,8 @@ cost/latency:
   panelist_count: <N>
   cost_estimate:  ≈ N× a single answer
   wall_clock:     ≈ slowest panelist (parallel fan-out)
-  per_panelist:   [opus: <Xs> | gpt: <Xs> | minimax: <Xs>]
-  effort_dials:   opus=<e> gpt=<e> minimax=<e>
+  per_panelist:   [opus: <Xs> | gpt: <Xs> | minimax: <Xs> | glm: <Xs>]
+  effort_dials:   opus=<e> gpt=<e> minimax=<e> glm=<e>
   effort_note:    max/deep/high cost more than low; users override at their own spend
   reserve_for:    high-stakes questions (architecture, security, irreversible ops)
 ```
@@ -157,7 +161,7 @@ A backend can be missing. Detect via the runner's exit code:
 
 **Degenerate 1-panelist runs.** If only ONE panelist returned a real answer (the other two were dropped or errored), the run is **not a true fusion**. Flag it explicitly:
 
-> `panel: opus-only | ran: [opus] | dropped: [gpt: ...; minimax: ...]`
+> `panel: opus-only | ran: [opus] | dropped: [gpt: ...; minimax: ...; glm: ...]`
 > `WARNING: not a true fusion (1 panelist) — single-model answer, no cross-check.`
 
 The single answer is still emitted, but it's labeled as a single-model answer. The user can re-run after restoring the missing backends to get a real fusion.
@@ -169,6 +173,7 @@ The single answer is still emitted, but it's labeled as a single-model answer. T
 | Opus 4.8 | `claude` on PATH | `command -v claude`; install Claude Code CLI. |
 | GPT-5.5  | `codex` executable | `command -v codex`; canonical path `$HOME/.npm-global/bin/codex`; override via `CODEX_BIN=/path/to/codex`. |
 | MiniMax M3 | `mm` executable + key file | `mm` at `$HOME/.local/bin/mm` (override `MM_BIN`); key file `~/.config/minimax.env` (override `MINIMAX_ENV_FILE`); `mm` reads the key itself, the runner only checks `-e`. |
+| GLM-5.2  | `claude` on PATH + key file | runs via the local `claude` binary (same as Opus); key file `~/.config/glm.env` (override `GLM_ENV_FILE`) holding `GLM_API_KEY` (+ optional `GLM_BASE_URL`/`GLM_MODEL`); the runner checks `-r` and sources it into the invocation only. |
 
 ---
 
@@ -177,7 +182,7 @@ The single answer is still emitted, but it's labeled as a single-model answer. T
 Three independent dials, all defaulted, all overridable per-run (not session-wide):
 
 1. **Panel composition** — which runners actually launch. Auto-detected by `SLUG`; overridable via `--panel opus,minimax` (e.g.) or "fuse this with opus and minimax only". The slug in the panel line reflects the **subset that actually ran**, not the auto-detected maximum.
-2. **Per-panelist effort** — the **3rd positional arg** to each runner: `run_<backend>.sh <prompt_file> <output_file> [effort]`. Defaults: opus=`max`, gpt=`high`, minimax=`deep`. Override per-runner (e.g. "opus on `max`, the rest on `low`"). Unknown values → `exit 64` → treat as absent (FR-011).
+2. **Per-panelist effort** — the **3rd positional arg** to each runner: `run_<backend>.sh <prompt_file> <output_file> [effort]`. Defaults: opus=`xhigh`, gpt=`high`, minimax=`deep`, glm=`deep` (32k thinking). Override per-runner (e.g. "opus on `max`, the rest on `low`"). Unknown values → `exit 64` → treat as absent (FR-011).
 3. **Mode** — `select` vs `combine`. Pinned by `/fuse-pick select|combine` or `--pick`. A pin always wins over the default-by-task (FR-007 / FR-012).
 
 If the user pinned none, defaults stand. Pin per-run, not session-wide.
@@ -187,7 +192,7 @@ If the user pinned none, defaults stand. Pin per-run, not session-wide.
 ## 9. Cost / latency
 
 - **Panel cost ≈ N× a single answer** for N panelists that actually ran. Each panelist is a full separate model invocation.
-- **Wall-clock = slowest panelist** (parallel fan-out, not sum-of-all). Opus and `mm` default to a 900s timeout; GPT-5.5 (codex) defaults to 600s. Override via `OPUS_TIMEOUT` / `GPT_TIMEOUT` / `MM_TIMEOUT` env vars.
+- **Wall-clock = slowest panelist** (parallel fan-out, not sum-of-all). Opus, `mm`, and GLM default to a 900s timeout; GPT-5.5 (codex) defaults to 600s. Override via `OPUS_TIMEOUT` / `GPT_TIMEOUT` / `MM_TIMEOUT` / `GLM_TIMEOUT` env vars.
 - **Effort scales cost.** `max` and `deep` and `high` all cost more than `low`. The cost/latency block in every verdict records what effort was passed so you can see what you paid for.
 - **Reserve for high-stakes questions** — architecture, security, irreversible ops, contested design decisions. Don't reach for `/fuse` on a typo, a one-liner, or a prompt you can answer with a single shell lookup.
 
@@ -197,7 +202,7 @@ If the user pinned none, defaults stand. Pin per-run, not session-wide.
 
 No backend credential ever appears in any prompt, output, log, or run receipt (FR-014, SC-007, Constitution IV).
 
-- **No keys on argv.** `claude` / `codex` / `mm` read auth from their canonical files; runners never put a key on the command line.
+- **No keys on argv.** `claude` / `codex` / `mm` read auth from their canonical files; runners never put a key on the command line. `run_glm.sh` sources `~/.config/glm.env` into the invocation only and carries the key as the per-command `ANTHROPIC_AUTH_TOKEN` / `ANTHROPIC_API_KEY` env (both in the `safe_log` redaction set below) — never on argv, never echoed.
 - **No keys in prompts.** Prompts are written to a per-run scratch dir (`mktemp -d -t fuse.<label>.XXXXXX`), isolated from the caller's repo, cleaned up by a caller-side `trap ... EXIT` (a subshell trap would fire too early and remove the dir before the parent could use it).
 - **No keys in output.** `run_<backend>.sh` writes the **clean answer text** to `<output_file>` — the runner's diagnostics (`safe_log` lines) go to stderr and stay in the scratch dir (gone on EXIT).
 - **No keys in logs.** `lib.sh: safe_log` redacts on the way to stderr:
@@ -213,7 +218,7 @@ The test `tests/test_no_secret_leak.sh` (T019) verifies all of this with adversa
 
 ## 11. Constitution note
 
-- **Constitution III (Anthropic via local `claude -p` only).** Enforced: `run_opus.sh` always invokes the LOCAL `claude` binary with `--model claude-opus-4-8`; never a direct Anthropic API call; never a global `ANTHROPIC_BASE_URL`; per-invocation env scoping only.
+- **Constitution III (Anthropic via local `claude -p` only).** Enforced: `run_opus.sh` always invokes the LOCAL `claude` binary with `--model claude-opus-4-8`; never a direct Anthropic API call; never a global `ANTHROPIC_BASE_URL`; per-invocation env scoping only. `run_glm.sh` reuses the same local `claude` binary but **deliberately repoints** `ANTHROPIC_BASE_URL` to z.ai for its single invocation (GLM-5.2 is a distinct provider, opt-in) — still per-invocation scoping, never a global base URL, so the Anthropic path stays untouched.
 - **Constitution V (effort caps).** **Justified deviation:** `max` and `ultracode` are the deliberate effort levels on the **local `claude -p` path** for this skill (Opus panelist + judge). This is the only place in the system where those effort levels are used, and only on the local `claude` binary, not via any gateway path. The deviation is recorded in the plan's Constitution Check and tracked in the run receipt.
 - **Constitution IV (no credential leak).** Enforced by the secret-safety section above + `safe_log` redaction + scratch isolation.
 
@@ -269,7 +274,8 @@ fuse/
 │       ├── detect_panel.sh         # SLUG=... probe; always exit 0
 │       ├── run_opus.sh             # contract: <prompt> <out> [effort]  → 0/64/65/127/1
 │       ├── run_gpt.sh              # contract: <prompt> <out> [effort]  → 0/64/65/127/1
-│       └── run_minimax.sh          # contract: <prompt> <out> [effort]  → 0/64/65/127/1
+│       ├── run_minimax.sh          # contract: <prompt> <out> [effort]  → 0/64/65/127/1
+│       └── run_glm.sh              # contract: <prompt> <out> [effort]  → 0/64/65/127/1
 └── tests/
     ├── test_runner_contract.sh
     ├── test_detect_panel.sh

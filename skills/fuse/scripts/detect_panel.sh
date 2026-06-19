@@ -33,11 +33,13 @@ source "${SCRIPT_DIR}/lib.sh"
 opus_avail=1
 gpt_avail=1
 minimax_avail=1
+glm_avail=1
 gemini_avail=1
 
 # --- Human-readable "missing" reason strings. ---
 gpt_reason=""
 minimax_reason=""
+glm_reason=""
 gemini_reason=""
 
 # --- opus (claude) — ALWAYS the anchor per the contract. ---
@@ -90,7 +92,22 @@ else
   fi
 fi
 
-# --- gemini (optional 4th) — only present counts. ---
+# --- glm (GLM-5.2 via z.ai) — claude binary (anchor) + glm.env present.
+#     Secret-safety: the env file is checked by `-r` only — never read,
+#     sourced, or echoed here (run_glm.sh is the authoritative gate on an
+#     empty GLM_API_KEY, exiting 127 so the orchestrator drops the panelist). ---
+glm_env="${GLM_ENV_FILE:-$HOME/.config/glm.env}"
+if [[ ${opus_avail} -eq 0 && -r "${glm_env}" ]]; then
+  glm_avail=0
+else
+  if [[ ${opus_avail} -ne 0 ]]; then
+    glm_reason="claude (GLM runs via the claude binary) not in PATH"
+  else
+    glm_reason="glm env file absent (${glm_env})"
+  fi
+fi
+
+# --- gemini (optional probe) — only present counts. ---
 if command -v gemini >/dev/null 2>&1; then
   gemini_avail=0
 else
@@ -116,20 +133,30 @@ else
   echo "minimax: missing (${minimax_reason})"
 fi
 
+if [[ ${glm_avail} -eq 0 ]]; then
+  echo "glm: available"
+else
+  echo "glm: missing (${glm_reason})"
+fi
+
 if [[ ${gemini_avail} -eq 0 ]]; then
   echo "gemini: available"
 else
   echo "gemini: missing (${gemini_reason})"
 fi
 
-# --- Compute richest SLUG (anchor is always opus/claude). ---
-slug="opus-only"
-if [[ ${opus_avail} -eq 0 && ${gpt_avail} -eq 0 && ${minimax_avail} -eq 0 ]]; then
-  slug="opus-gpt-minimax"
-elif [[ ${opus_avail} -eq 0 && ${minimax_avail} -eq 0 ]]; then
-  slug="opus-minimax"
-elif [[ ${opus_avail} -eq 0 && ${gpt_avail} -eq 0 ]]; then
-  slug="opus-gpt"
+# --- Compute richest SLUG, COMPOSITIONALLY (anchor is always opus/claude;
+#     each available backend appends its token in fixed order). This keeps
+#     every legacy slug intact (opus-gpt-minimax, opus-minimax, opus-gpt,
+#     opus-only) and adds the 4-model richest "opus-gpt-minimax-glm". ---
+if [[ ${opus_avail} -eq 0 ]]; then
+  slug="opus"
+  [[ ${gpt_avail} -eq 0 ]]     && slug="${slug}-gpt"
+  [[ ${minimax_avail} -eq 0 ]] && slug="${slug}-minimax"
+  [[ ${glm_avail} -eq 0 ]]     && slug="${slug}-glm"
+  [[ "${slug}" == "opus" ]]    && slug="opus-only"
+else
+  slug="opus-only"
 fi
 
 # --- Degenerate flag for opus-only (per FR-011 / SC-004). ---

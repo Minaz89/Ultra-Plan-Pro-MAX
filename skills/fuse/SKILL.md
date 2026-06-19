@@ -1,6 +1,6 @@
 ---
 name: fuse
-description: Use when the user wants a high-stakes question fanned across a blind multi-model panel (Opus 4.8, GPT-5.5, MiniMax M3) and then judged/merged by Opus @ultracode. Triggers — "fuse this", "panel this", "ask the panel", "fuse --pick combine|select", or any question explicitly worth three models.
+description: Use when the user wants a high-stakes question fanned across a blind multi-model panel (Opus 4.8, GPT-5.5, MiniMax M3, GLM-5.2) and then judged/merged by Opus @ultracode. Triggers — "fuse this", "panel this", "ask the panel", "fuse --pick combine|select", or any question explicitly worth multiple models.
 ---
 
 # fuse — multi-AI panel→judge orchestration
@@ -52,9 +52,11 @@ SKILL_DIR="<this skill's base directory>"   # e.g. ~/.claude/skills/fuse
 bash "${SKILL_DIR}/scripts/detect_panel.sh" 2>&1
 ```
 
-Parse the output: extract the `SLUG=` line (machine-readable). The slug is one of
-`opus-gpt-minimax` | `opus-minimax` | `opus-gpt` | `opus-only`. Tell the user
-which panel is active. **If `SLUG=opus-only`**, warn explicitly:
+Parse the output: extract the `SLUG=` line (machine-readable). The slug is
+**compositional** — `opus` plus each available backend's token in fixed order
+(`-gpt`, `-minimax`, `-glm`), so the richest is `opus-gpt-minimax-glm` and any
+subset is valid (`opus-gpt-minimax`, `opus-minimax`, `opus-glm`, `opus-only`,
+…). Tell the user which panel is active. **If `SLUG=opus-only`**, warn explicitly:
 
 > WARNING: degenerate panel (opus-only) — not a true fusion. fusing requires ≥2
 > panelists to add value. Continue anyway?
@@ -87,6 +89,7 @@ honors it (FR-007 / FR-012).
    opus_out="${scratch}/answer_opus.txt"
    gpt_out="${scratch}/answer_gpt.txt"
    minimax_out="${scratch}/answer_minimax.txt"
+   glm_out="${scratch}/answer_glm.txt"
    ```
 
    (Each runner resolves its own output path too, but these are already absolute
@@ -107,6 +110,10 @@ honors it (FR-007 / FR-012).
    # MiniMax M3 — default effort deep
    bash "${SKILL_DIR}/scripts/run_minimax.sh" \
        "${scratch}/prompt.txt" "${minimax_out}" deep
+
+   # GLM-5.2 (z.ai) — default effort deep (32k thinking)
+   bash "${SKILL_DIR}/scripts/run_glm.sh" \
+       "${scratch}/prompt.txt" "${glm_out}" deep
    ```
 
    Skip a panelist whose backend is not available (the script exits 127, the
@@ -131,7 +138,7 @@ honors it (FR-007 / FR-012).
       `run_minimax.sh`). The runners already accept it; the orchestrator just
       passes it through.
       - **Defaults**: opus=`max` (Constitution V deviation, local claude -p
-        path), gpt=`high`, minimax=`deep`.
+        path), gpt=`high`, minimax=`deep`, glm=`deep` (32k).
       - **Override**: if the user requests a different effort — "fuse this on
         `high`", `/fuse --effort high "<q>"`, "all panelist effort `xhigh`"
         — pass it through to every participating runner. A user can also
@@ -224,7 +231,7 @@ scratchpad, or anything outside the answer files + the original prompt). Apply
    answer). Then a final grounded answer that is **not** a fifth summary — it
    is the answer a reader should act on.
 5. **Attribution (FR-010).** Every claim / decision / line in the deliverable
-   carries inline tags `[opus]`, `[gpt]`, `[minimax]`, or `[opus+gpt]` etc.
+   carries inline tags `[opus]`, `[gpt]`, `[minimax]`, `[glm]`, or `[opus+gpt]` etc.
    A claim with no source is a bug.
 
 **The literal-Opus-judge guarantee (FR-006).** This skill is intended to run in

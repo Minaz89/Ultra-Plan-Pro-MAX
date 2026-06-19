@@ -7,18 +7,21 @@
 #    missing panelist is treated as absent, not as a silent agreement."
 #
 # The detector runs BEFORE any panelist; it inspects CODEX_BIN, MM_BIN,
-# MINIMAX_ENV_FILE, and PATH. When a backend's runner would return 127
-# (backend missing), the detector reports it as MISSING with a
+# MINIMAX_ENV_FILE, GLM_ENV_FILE, and PATH. When a backend's runner would
+# return 127 (backend missing), the detector reports it as MISSING with a
 # human-readable reason, the SLUG excludes it, and the run proceeds on
 # the remaining panelists. The missing line is DISTINCT from an
 # "available" line — a missing panelist is never in the SLUG.
 #
 # No live spend: same stub/env-override pattern as test_detect_panel.sh.
 #   - Stub claude on PATH (anchor always present per the contract).
-#   - CODEX_BIN, MM_BIN, MINIMAX_ENV_FILE point at nonexistent paths to
-#     hide a backend. The detector only checks -x / -e; the real
-#     backend is never invoked.
-#   - Real key never read; the stub env file is checked by -e only.
+#   - CODEX_BIN, MM_BIN, MINIMAX_ENV_FILE, GLM_ENV_FILE point at
+#     nonexistent paths to hide a backend. The detector only checks
+#     -x / -e / -r; the real backend is never invoked.
+#   - HOME is isolated to a scratch dir so the probe's default key-file
+#     paths can never resolve to a real key on the dev box; availability
+#     is decided only by the explicit env overrides.
+#   - Real keys never read; the stub env files are checked by -e / -r only.
 #
 # Style: plain bash assertions; PASS / FAIL per assertion; non-zero
 # exit if any FAIL. Deterministic — no sleeps, no retry loops.
@@ -33,13 +36,15 @@ if [[ ! -r "${DETECT}" ]]; then
   exit 2
 fi
 
-# --- Per-run scratch: isolated stub PATH + stub key file. ---
+# --- Per-run scratch: isolated stub PATH + stub key files + stub HOME. ---
 SCRATCH="$(mktemp -d -t fusedown.XXXXXX)"
 trap 'rm -rf "${SCRATCH}"' EXIT
 
 STUB_BIN="${SCRATCH}/bin"
 STUB_ENV="${SCRATCH}/minimax.env"
-mkdir -p "${STUB_BIN}"
+STUB_GLM="${SCRATCH}/glm.env"
+STUB_HOME="${SCRATCH}/home"
+mkdir -p "${STUB_BIN}" "${STUB_HOME}"
 
 # Stub executables — exit 0; the probe only checks -x. Real binaries
 # are never invoked.
@@ -52,17 +57,22 @@ STUB
   chmod 755 "${STUB_BIN}/${name}"
 done
 
-# Stub minimax env — never read by detect_panel.sh (only -e checked).
-# Real key is never touched; this is a fixture only.
+# Stub key files — never read by detect_panel.sh (minimax -e, glm -r only).
+# Real keys are never touched; these are fixtures only.
 cat >"${STUB_ENV}" <<'STUB'
 # STUB FIXTURE — not a real key. test_downgrade.sh only.
 MINIMAX_API_KEY=stub-fixture-not-a-real-key
+STUB
+cat >"${STUB_GLM}" <<'STUB'
+# STUB FIXTURE — not a real key. test_downgrade.sh only.
+GLM_API_KEY=stub-fixture-not-a-real-key
 STUB
 
 # Hidden paths — used to simulate an absent backend via env override.
 HIDDEN_CODEX="/nonexistent/codex-for-test"
 HIDDEN_MM="/nonexistent/mm-for-test"
 HIDDEN_ENV="/nonexistent/minimax.env-for-test"
+HIDDEN_GLM="/nonexistent/glm.env-for-test"
 
 # Base PATH includes /usr/bin:/bin so basic utilities (dirname, awk,
 # grep) resolve. Stub bin is prepended so stub binaries take
@@ -75,11 +85,11 @@ fail=0
 case_no=0
 
 # run_probe <env_assignments...>
-#   Runs detect_panel.sh with isolated PATH plus caller-supplied env.
-#   Echoes the probe's stdout.
+#   Runs detect_panel.sh with isolated PATH + isolated HOME plus
+#   caller-supplied env. Echoes the probe's stdout.
 run_probe() {
   env -i \
-    HOME="${HOME:-/tmp/fuse-test-home}" \
+    HOME="${STUB_HOME}" \
     PATH="${BASE_PATH}" \
     "$@" \
     bash "${DETECT}" 2>/dev/null
@@ -124,6 +134,10 @@ assert() {
   fi
 }
 
+# All cases below keep glm OFF (GLM_ENV_FILE hidden) except Case 5, so the
+# gpt/minimax downgrade slugs stay deterministic; Case 5 exercises the glm
+# drop path on its own.
+
 # ============================================================
 # Case 1: codex hidden via CODEX_BIN (runner's 127 path)
 # ============================================================
@@ -134,7 +148,8 @@ assert() {
 out="$(run_probe \
   CODEX_BIN="${HIDDEN_CODEX}" \
   MM_BIN="${STUB_BIN}/mm" \
-  MINIMAX_ENV_FILE="${STUB_ENV}")"
+  MINIMAX_ENV_FILE="${STUB_ENV}" \
+  GLM_ENV_FILE="${HIDDEN_GLM}")"
 
 printf '\n[case 1: codex hidden — CODEX_BIN=%s]\n' "${HIDDEN_CODEX}"
 
@@ -179,7 +194,8 @@ esac
 out="$(run_probe \
   CODEX_BIN="${STUB_BIN}/codex" \
   MM_BIN="${HIDDEN_MM}" \
-  MINIMAX_ENV_FILE="${STUB_ENV}")"
+  MINIMAX_ENV_FILE="${STUB_ENV}" \
+  GLM_ENV_FILE="${HIDDEN_GLM}")"
 
 printf '\n[case 2: mm hidden — MM_BIN=%s]\n' "${HIDDEN_MM}"
 
@@ -224,7 +240,8 @@ esac
 out="$(run_probe \
   CODEX_BIN="${STUB_BIN}/codex" \
   MM_BIN="${STUB_BIN}/mm" \
-  MINIMAX_ENV_FILE="${HIDDEN_ENV}")"
+  MINIMAX_ENV_FILE="${HIDDEN_ENV}" \
+  GLM_ENV_FILE="${HIDDEN_GLM}")"
 
 printf '\n[case 3: minimax env absent — MINIMAX_ENV_FILE=%s]\n' "${HIDDEN_ENV}"
 
@@ -253,7 +270,8 @@ assert "SLUG=opus-gpt (minimax dropped, run still proceeds)" \
 out="$(run_probe \
   CODEX_BIN="${HIDDEN_CODEX}" \
   MM_BIN="${HIDDEN_MM}" \
-  MINIMAX_ENV_FILE="${HIDDEN_ENV}")"
+  MINIMAX_ENV_FILE="${HIDDEN_ENV}" \
+  GLM_ENV_FILE="${HIDDEN_GLM}")"
 
 printf '\n[case 4: opus-only — all non-anchor backends hidden]\n'
 
@@ -290,12 +308,57 @@ assert "WARNING: degenerate panel line present" \
 
 # A missing panelist must NEVER be in the SLUG.
 case "${actual_slug}" in
-  *gpt*|*minimax*)
+  *gpt*|*minimax*|*glm*)
     assert "SLUG=opus-only — no leaked panelist" "0" \
-      "SLUG=${actual_slug} must not contain gpt or minimax"
+      "SLUG=${actual_slug} must not contain gpt, minimax, or glm"
     ;;
   *)
     assert "SLUG=opus-only — no leaked panelist" "1"
+    ;;
+esac
+
+# ============================================================
+# Case 5: glm hidden via GLM_ENV_FILE (the 4th-panelist drop path)
+# ============================================================
+# gpt + minimax present, glm env file absent => glm dropped. Same
+# FR-011 contract: a "glm: missing (...)" line, NOT in the SLUG, run
+# proceeds on {opus, gpt, minimax}.
+out="$(run_probe \
+  CODEX_BIN="${STUB_BIN}/codex" \
+  MM_BIN="${STUB_BIN}/mm" \
+  MINIMAX_ENV_FILE="${STUB_ENV}" \
+  GLM_ENV_FILE="${HIDDEN_GLM}")"
+
+printf '\n[case 5: glm hidden — GLM_ENV_FILE=%s]\n' "${HIDDEN_GLM}"
+
+glm_missing_line="$(extract_line 'glm: missing' "${out}")"
+glm_reason="$(extract_missing_reason 'glm' "${out}")"
+glm_avail_count="$(printf '%s\n' "${out}" | grep -c '^glm: available')"
+actual_slug="$(extract_slug "${out}")"
+
+assert "glm: missing (...) line emitted" \
+  "$([[ -n "${glm_missing_line}" ]] && echo 1 || echo 0)" \
+  "no 'glm: missing (...)' line in output"
+
+assert "glm missing reason is non-empty + informative" \
+  "$([[ -n "${glm_reason}" && "${glm_reason}" != 'missing' ]] && echo 1 || echo 0)" \
+  "reason was: '${glm_reason}'"
+
+assert "glm: available is NOT present (NOT counted as available)" \
+  "$([[ "${glm_avail_count}" -eq 0 ]] && echo 1 || echo 0)" \
+  "found ${glm_avail_count} 'glm: available' line(s); expected 0"
+
+assert "SLUG=opus-gpt-minimax (glm dropped, run still proceeds)" \
+  "$([[ "${actual_slug}" == "opus-gpt-minimax" ]] && echo 1 || echo 0)" \
+  "expected SLUG=opus-gpt-minimax; got SLUG=${actual_slug}"
+
+case "${actual_slug}" in
+  *glm*)
+    assert "glm NOT in SLUG (absent != agreement)" "0" \
+      "glm leaked into SLUG: ${actual_slug}"
+    ;;
+  *)
+    assert "glm NOT in SLUG (absent != agreement)" "1"
     ;;
 esac
 
