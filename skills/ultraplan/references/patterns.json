@@ -1,0 +1,60 @@
+{
+  "_meta": {
+    "purpose": "Frozen team-orchestration pattern catalog for ultraplan --harness (Mix C). The 6 patterns are ABSORBED from the harness taxonomy (github.com/revfactory/harness) as data — the harness plugin is NOT installed and is NOT a runtime dependency (spec 019, FR-4). Closed enum: adding a 7th pattern is out of scope.",
+    "model_policy": "Absorbed patterns are de-opus'd: harness hardcodes model:opus on generated agents; here the per-agent model is assigned by the Stage-2 judge from the EXECUTOR POOL only (glm-5.2 | minimax-m3 | claude-sonnet). opus is audit-only; gpt-5.5/codex are NEVER a worker.",
+    "spec": "specs/019-ultraplan-harness"
+  },
+  "executor_pool": ["glm-5.2", "minimax-m3", "claude-sonnet"],
+  "forbidden_executors": ["gpt-5.5", "gpt", "codex"],
+  "auditor": "opus",
+  "patterns": [
+    {
+      "name": "pipeline",
+      "shape": "Linear chain — each agent consumes the prior agent's output; one path, ordered stages.",
+      "fit_signals": ["sequential transform", "clear stage boundaries", "build a CLI / ETL / codegen-then-format"],
+      "routing_rule": "tasks routed to agents in declared order; output of stage N is input of stage N+1.",
+      "guard_placement": "guard-reviewer sits between each stage transition.",
+      "max_roster": 6
+    },
+    {
+      "name": "fan-out-in",
+      "shape": "One splitter → N parallel producers → one aggregator. Independent subtasks done concurrently, merged.",
+      "fit_signals": ["embarrassingly parallel subtasks", "multi-file independent edits", "gather-then-merge"],
+      "routing_rule": "splitter assigns disjoint subtasks to producers; aggregator merges; (v1 dispatch sequential, logical fan-out preserved).",
+      "guard_placement": "each fan-out branch has its own guard-reviewer before fan-in.",
+      "max_roster": 6
+    },
+    {
+      "name": "expert-pool",
+      "shape": "A dispatcher selects the right specialist per task from a pool of experts; selective invocation, not all-run.",
+      "fit_signals": ["heterogeneous tasks", "refactor a sprawling module", "domain experts per area"],
+      "routing_rule": "a small sonnet dispatcher picks one expert per task by task type.",
+      "guard_placement": "guard-reviewer invoked after any expert produces output.",
+      "max_roster": 6
+    },
+    {
+      "name": "producer-reviewer",
+      "shape": "Every task is a producer→reviewer pair (generate then quality-gate). The SAFE DEFAULT.",
+      "fit_signals": ["quality-critical", "unknown/degenerate domain", "Stage-2 judge fallback when no design clears threshold"],
+      "routing_rule": "each task: producer generates, reviewer gates; reviewer IS the guard-reviewer (merged role).",
+      "guard_placement": "the reviewer role is the guard-reviewer (clean-code/test/docs).",
+      "max_roster": 4
+    },
+    {
+      "name": "supervisor",
+      "shape": "A supervisor agent dynamically distributes tasks to workers and decides completion.",
+      "fit_signals": ["dynamic/unknown task decomposition", "adaptive routing", "coordinator needed"],
+      "routing_rule": "supervisor (= sonnet) fans tasks to workers, routes each through the guard-reviewer before marking done.",
+      "guard_placement": "supervisor routes every worker output to guard-reviewer before completion.",
+      "max_roster": 6
+    },
+    {
+      "name": "hierarchical",
+      "shape": "Tree of supervisors → sub-teams → workers; recursive top-down delegation. Depth capped at 2.",
+      "fit_signals": ["large multi-subsystem build", "natural sub-team decomposition"],
+      "routing_rule": "top supervisor delegates to sub-team leads (depth <= 2); leads route to workers.",
+      "guard_placement": "each sub-team lead reports through a guard-reviewer.",
+      "max_roster": 6
+    }
+  ]
+}

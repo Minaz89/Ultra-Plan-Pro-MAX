@@ -625,3 +625,61 @@ plan; **execution** is the one pro-max deviation from FR-024:
   `ultraplan/dropped_decisions.md` anyway. The audit trail of WHY a
   unique insight was dropped is more valuable than the insight itself
   once execution starts.
+## Harness Mode (`--harness`) — Mix C (spec 019-ultraplan-harness)
+
+**Opt-in only.** `--harness` is a strict superset gated behind `if [[ "${ULTRAPLAN_HARNESS:-0}" == 1 ]]`.
+Bare `/plan --ultra` and `!ultraplan` run STEP 0→7 **byte-identical** (FR-10/SC-1) — harness
+code never executes without the flag. Telegram: `!ultraplan-harness` (or a `--harness` arg)
+sets `ULTRAPLAN_HARNESS=1` (+ `TG_ULTRAPLAN_AUTO_GATE=1`).
+
+**What it adds:** ultraplan's panel→judge, pointed a SECOND time at *team architecture*. Stage 1
+designs the PLAN (existing); Stage 2 designs the TEAM that executes it (same 4-model rigor);
+Stage 3 runs the plan THROUGH that team. Replaces the solo `glm-exec` STEP 7 with a
+domain-specialized team — only when `--harness`.
+
+**harness = ABSORBED, not installed.** The 6 orchestration patterns live as a frozen data
+catalog at `references/patterns.json`; the harness plugin is NOT a dependency. (harness hardcodes
+`model: opus` on every agent → would violate the executor pool + audit-only rules below.)
+
+### Stage 2 — team panel→judge (Seam A, after STEP 6)
+Fan the frozen domain spec + `merged_brief.md` + `recon.md` + `references/patterns.json` to the
+blind panel **reusing `run_*.sh`, SEQUENTIALLY from the daemon** (creds-contention lesson). Each
+panelist proposes a team design (one of the 6 patterns + roster + per-agent skills + model pins
+from the executor pool). **gpt-5.5 is a panelist here only (1 cheap call).** opus @ultracode
+select-and-grafts ONE design, reusing the fuse judge via a `team` task_class added to
+`fuse/references/judge_rubric.md` (extend, mirror T037's `plan` class — do NOT fork). Safe-default
+fallback = `producer-reviewer`. Output = `team-design.json` (schema `references/team-design-schema.json`).
+
+### Stage 2b — materializer (deterministic; the model never writes files)
+`scripts/materialize_team.py` is the SOLE disk writer. The validator is **authoritative** — hard refusals:
+- **R1** any `model_pin`/`model_fallback` ∈ {gpt-5.5, gpt, codex*} → REFUSE (executor pool only).
+- **R2** any `producer` absent from `guard_topology` → REFUSE.
+- **R3** no reviewer carrying all of {clean-code-guard, test-guard, docs-guard} → REFUSE.
+- **R4** roster > 6 → REFUSE (cost). **R5** pattern ∉ the 6, or unresolved skill → REFUSE.
+Writes to a per-run staging dir; copies to the project-local `.claude/{agents,skills}/` ONLY on
+exec start (keeps the non-harness `.claude/` pristine); emits a manifest for reversibility.
+
+### Stage 3 — harness execution (Seam B, replaces solo STEP 7 only when `--harness`)
+Per-pattern router → workers from the **executor pool: glm-exec (primary) / mm-exec (trivial) /
+sonnet (quality-critical)**; the **guard-reviewer gates each output** (team role) BEFORE the
+**opus audit** (STEP 7 audit unchanged). On audit FAIL: no auto-re-dispatch (operator approval).
+Receipts → `.worker-receipts/`. v1 dispatch is sequential.
+
+### Model-role invariant (hard)
+| Role | Models | Effort |
+|---|---|---|
+| plan / team panelist | opus / gpt-5.5 / minimax / glm | xhigh / high / deep / deep |
+| judge (both stages) | opus | ultracode |
+| **worker** | **glm-5.2 / minimax-m3 / sonnet** | deep / deep / high |
+| auditor | **opus** | xhigh |
+| **NEVER a worker** | **gpt-5.5 / codex** (panel-only) | — |
+
+### Cost guard
+Pre-Stage-2 (`scripts/cost_guard.py`): ≤3 tasks + low complexity → warn *"staffing not worth it,
+use plain --ultra"* (advisory; `--force-harness` override; logged). Abort Stage 2 if its spend > 2×
+Stage 1. Log panel+team-panel+exec+audit spend.
+
+### Provenance (extends the existing trail)
+Add `team_panel_{opus,gpt,minimax,glm}.md`, `team_judge_attribution.json`, `team-design.json`,
+`materialization_manifest.md`, harness exec evidence. All non-authoritative; excluded from
+plan-audit by the existing path convention (siblings of the scanned `specs/NNN/*.md`).
