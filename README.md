@@ -5,7 +5,7 @@
 
 The two skills:
 
-- **`ultraplan`** (`/plan --ultra`) — specify-once → freeze spec → 4 blind planners → Opus judge select-and-graft → human gate → formalize → fidelity check. Includes the FR-025 recon-before-freeze gate.
+- **`ultraplan`** (`/plan --ultra`) — specify-once → freeze spec → 4 blind planners → Opus judge select-and-graft → human gate → formalize → fidelity check. Includes the FR-025 recon-before-freeze gate. Optional **`--harness`** mode (spec 019) adds a second team-design panel + staffed multi-agent execution — see [Harness mode](#harness-mode---harness) below.
 - **`fuse`** (`/fuse`) — the underlying panel→judge engine documented below.
 
 ---
@@ -253,6 +253,28 @@ The runner-contract test covers six cases per runner: happy path, missing backen
 
 ---
 
+## Harness mode (`--harness`)
+
+> **`/plan --ultra --harness "<feature>"`** — opt-in. After the plan panel produces the merged brief + tasks, a SECOND panel→judge designs a domain-specific **executor team**, a deterministic writer materializes it, and the tasks run THROUGH that team under Opus audit. Plain `/plan --ultra` is byte-identical when `--harness` is absent (the harness path is gated behind `ULTRAPLAN_HARNESS`).
+
+Mix C = ultraplan's proven panel→judge engine pointed a **second** time, at *team architecture* instead of plan architecture.
+
+**The three added stages:**
+1. **Team panel→judge** — the 4 blind models each propose an executor team using one of **6 orchestration patterns** (pipeline · fan-out-in · expert-pool · producer-reviewer · supervisor · hierarchical), absorbed as data from the [harness](https://github.com/revfactory/harness) taxonomy (the plugin is **not** a dependency). Opus judges + grafts one design. `gpt-5.5` participates here as a **panelist only**.
+2. **Materialize** (`scripts/materialize_team.py`) — the judge emits JSON; this script is the **sole disk writer** and refuses any design that violates the invariants:
+   - **R1** a worker pinned to `gpt-5.5`/`codex` → REFUSED (executor pool is `glm-5.2` / `minimax-m3` / `claude-sonnet` only; Opus is audit-only).
+   - **R2/R3** missing guard-reviewer (clean-code / test / docs) → REFUSED.
+   - **R4/R5** roster over the pattern cap, unknown pattern, or unsafe agent name → REFUSED.
+3. **Staffed execution** (`scripts/harness_execute.sh`) — a data-driven router sends each task to its specialist worker (`glm-exec` / `mm-exec` / `sonnet-exec`), the guard-reviewer gates each output, Opus audits each phase.
+
+**Cost guard** (`scripts/cost_guard.py`): harness mode stacks a second panel + execution, so a small feature is steered back to plain `--ultra` (override with `--force-harness`).
+
+**Hard invariant:** `gpt-5.5`/`codex` are **panel-only, never a worker** — enforced by construction (schema `model_pin` enum + the materializer's R1), not by convention.
+
+> The Telegram `!ultraplan-harness` alias is wired in the separate `telegram-daemon`, not bundled in this skill repo.
+
+---
+
 ## Layout
 
 ```
@@ -276,6 +298,18 @@ fuse/
 │       ├── run_gpt.sh              # contract: <prompt> <out> [effort]  → 0/64/65/127/1
 │       ├── run_minimax.sh          # contract: <prompt> <out> [effort]  → 0/64/65/127/1
 │       └── run_glm.sh              # contract: <prompt> <out> [effort]  → 0/64/65/127/1
+├── skills/ultraplan/               # the planning skill (/plan --ultra [--harness])
+│   ├── SKILL.md                    # ultraplan contract; "## Harness Mode" section
+│   ├── references/
+│   │   ├── patterns.json           # the 6 orchestration patterns (harness taxonomy, de-opus'd)
+│   │   └── team-design-schema.json # Stage-2 judge → materializer contract (model_pin enum bans codex)
+│   ├── prompts/
+│   │   └── team-architect-prompt.md
+│   └── scripts/
+│       ├── materialize_team.py     # sole disk writer; R1-R5 refusals (codex ban + mandatory guard-reviewer)
+│       ├── test_materialize_team.py# R1-R5 + valid-team tests (6/6)
+│       ├── cost_guard.py           # pre-Stage-2 sizing; --force-harness override
+│       └── harness_execute.sh      # data-driven per-pattern staffed router
 └── tests/
     ├── test_runner_contract.sh
     ├── test_detect_panel.sh
