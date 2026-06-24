@@ -14,6 +14,7 @@ The orchestrator invokes you at `effortLevel: ultracode` (not as a panelist).
 | `artifact` | **A** | code, config, runnable thing, anything you can exec | one merged runnable artifact + `verified\|unverified` |
 | `research` | **B** | analysis, explanation, comparison, "what should I do" | grounded final answer + five-section audit |
 | `plan` | **B-sub** | reserved for US4 `/plan --ultra` | NOT detailed here — see T037 |
+| `team` | **B-sub** | `/plan --ultra --harness` Stage 2 (executor-team design) | ONE `team-design.json` — see §10 |
 
 Default by task: code-shaped prompt → A; prose-shaped prompt → B. The user can pin
 (`/fuse-pick artifact` or `/fuse-pick research`) via FR-012; a pin overrides the default.
@@ -31,6 +32,7 @@ Default by task: code-shaped prompt → A; prose-shaped prompt → B. The user c
 - `artifact` (Track A) → `combination` (you must merge to get one runnable artifact).
 - `research` (Track B) → `combination` (five sections are inherently a synthesis).
 - `plan` (Track B-sub, US4) → `select-and-graft` (FR-019; per-arch forced selection on conflicts).
+- `team` (Track B-sub, harness Stage 2) → `select-and-graft` (per-pattern forced selection; safe-default producer-reviewer).
 
 **Overridable (FR-012).** The user can pin a mode via `/fuse-pick select` or `/fuse-pick combine`
 (or a `--pick` flag). A `pin_mode` **always** wins over the default-by-task — the judge honors
@@ -186,3 +188,29 @@ The merged brief is the deliverable. Items 2–5 are the audit trail (FR-015, FR
 A fidelity check (FR-021) diffs the derived `plan.md`/`tasks.md` against this merged brief
 and flags judge-decisions that did not survive formalization. That is `plan-audit`'s job,
 not yours. Your output is the brief; you do not pre-empt the diff.
+## 10. `team` task_class (Track B-subtype, `/plan --ultra --harness` Stage 2)
+
+**Inputs.** Independent **team designs** from panelists, all arguing over one frozen domain +
+the Stage-1 merged brief + the 6-pattern catalog (`ultraplan/references/patterns.json`).
+Panelists cap at each model's top-below-max effort (FR-022); gpt-5.5 is a panelist here ONLY.
+
+**Deliverable shape.** ONE `team-design.json` (schema `ultraplan/references/team-design-schema.json`)
++ an attribution trail. The judge emits JSON ONLY — `materialize_team.py` is the sole disk writer.
+
+### 10.1 Default mode: SELECT-AND-GRAFT (same spine logic as §9.1)
+Pick the strongest team design as the SPINE (pattern + roster). Graft superior whole roles /
+routing rules from the others. Incompatible patterns → FORCED SELECTION of one (§9.2); name the
+rejected pattern and why. **Safe-default fallback:** if no design clears the bar, emit a
+2-agent `producer-reviewer` team (guarantees the guard-reviewer exists).
+
+### 10.2 Hard grafts the judge MUST apply before emitting (spec 019 invariants)
+- **Guard-reviewer is mandatory** — graft a reviewer role carrying clean-code-guard + test-guard +
+  docs-guard, gating every producer (else the materializer refuses, R2/R3).
+- **Executor pool only** — every worker `model_pin`/`model_fallback` ∈ {glm-5.2, minimax-m3,
+  claude-sonnet}. **gpt-5.5/codex are NEVER a worker** (materializer R1 refuses). opus is audit-only.
+- **Roster ≤ the pattern's `max_roster`**; pattern ∈ the 6; agent names `[a-z0-9-]+`.
+
+### 10.3 What the judge MUST NOT do
+- Emit prose, agent `.md` files, or anything but the validated `team-design.json` (the writer renders files).
+- Pin any worker to opus/gpt-5.5/codex. Average two incompatible patterns (force the call, §9.2).
+- Count an absent panelist as agreement (§6).

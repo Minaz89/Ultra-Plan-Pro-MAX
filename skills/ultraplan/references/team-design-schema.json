@@ -1,0 +1,53 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ultraplan --harness team-design (Stage-2 judge output → materializer input)",
+  "description": "The judge emits ONLY this JSON. scripts/materialize_team.py is the sole disk writer (model never free-writes files). Validation is authoritative: it enforces the codex ban (R1) and the mandatory guard-reviewer (R2/R3) by construction — spec 019 FR-4/FR-5/FR-7.",
+  "type": "object",
+  "required": ["pattern", "roster", "routing", "guard_topology"],
+  "additionalProperties": false,
+  "properties": {
+    "pattern": {
+      "type": "string",
+      "enum": ["pipeline", "fan-out-in", "expert-pool", "producer-reviewer", "supervisor", "hierarchical"],
+      "description": "R5: must be one of the 6 absorbed patterns (references/patterns.json)."
+    },
+    "rationale": { "type": "string" },
+    "roster": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 6,
+      "description": "R4: roster size capped (cost guard).",
+      "items": {
+        "type": "object",
+        "required": ["name", "role", "model_pin", "skills"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "role": { "type": "string", "enum": ["producer", "reviewer", "dispatcher", "supervisor", "aggregator"] },
+          "model_pin": {
+            "type": "string",
+            "enum": ["glm-5.2", "minimax-m3", "claude-sonnet"],
+            "description": "R1: executor pool ONLY. gpt-5.5/gpt/codex are NOT valid values — schema rejects them. opus is audit-only (not a worker, not in this enum)."
+          },
+          "model_fallback": {
+            "type": "string",
+            "enum": ["glm-5.2", "minimax-m3", "claude-sonnet"]
+          },
+          "skills": { "type": "array", "items": { "type": "string" } },
+          "task_types": { "type": "array", "items": { "type": "string" } },
+          "gated_by": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "description": "task_type -> agent name, per the chosen pattern's routing_rule.",
+      "additionalProperties": { "type": "string" }
+    },
+    "guard_topology": {
+      "type": "object",
+      "description": "R2: every producer agent MUST appear here, mapped to the reviewer agent(s) that gate it. R3: at least one reviewer's skills must include all of clean-code-guard, test-guard, docs-guard. Enforced in materialize_team.py beyond what JSON Schema can express.",
+      "additionalProperties": { "type": "array", "items": { "type": "string" } }
+    }
+  }
+}
