@@ -217,8 +217,19 @@ prompt_file="${scratch}/prompt.txt"
 } > "${prompt_file}"
 ```
 
-Detect the panel (reuse fuse's detector) and launch all participating
-runners **in the same assistant turn** (parallel + blind, FR-002):
+**DISPATCH MODE — sequential when daemon-fired (creds-contention hard rule).**
+Local/interactive run → launch all runners **in the same assistant turn** (parallel
++ blind, FR-002). But when **daemon-fired** (`TG_ULTRAPLAN_AUTO_GATE=1`), run the
+planners **STRICTLY SEQUENTIALLY** (one `run_*.sh` finishes before the next starts)
+— NEVER a parallel `&`/`wait` fanout. Reason: 4 nested `claude -p` from the daemon
+contend on the shared `~/.claude` and stall with 0-byte output (observed twice:
+spec 019 worked only sequential; spec 020's parallel fanout hung dead). `TG_FUSE_ISOLATE=1`
+is set but is NOT sufficient on its own. Blindness is preserved either way (same frozen
+spec, no cross-talk); only parallelism is dropped. The blocks below run sequentially as
+written — do not wrap them in a backgrounded fanout.
+
+Detect the panel (reuse fuse's detector) and launch the participating
+runners (sequentially when daemon-fired; same-turn parallel only when local):
 
 ```bash
 # Detect panel (same as fuse STEP 0). Only the SLUG= line is machine-readable;
